@@ -1,0 +1,575 @@
+// =============================================================================
+//  MARIEMESHOES — Prisma schema
+//  Base : PostgreSQL 15+
+//  Conventions :
+//   - identifiants UUID générés par la base (gen_random_uuid)
+//   - montants en FCFA, stockés en Int (pas de centimes)
+//   - noms de tables/colonnes en snake_case via @@map / @map
+//   - les CHECK, index partiels, triggers et fonctions métier sont définis
+//     dans prisma/migrations/*_init (non exprimables en Prisma)
+//   - Prisma 7 : l'URL de connexion est dans prisma.config.ts
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [pg_trgm]
+}
+
+// -----------------------------------------------------------------------------
+//  ENUMS
+// -----------------------------------------------------------------------------
+
+enum Gender {
+  MEN
+  WOMEN
+  UNISEX
+  KIDS
+
+  @@map("gender")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+
+  @@map("order_status")
+}
+
+enum PaymentMethod {
+  WAVE
+  CASH_ON_DELIVERY
+
+  @@map("payment_method")
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+
+  @@map("payment_status")
+}
+
+enum StockMovementReason {
+  ORDER
+  CANCELLATION
+  RESTOCK
+  ADJUSTMENT
+  RETURN
+
+  @@map("stock_movement_reason")
+}
+
+enum CollectionType {
+  MANUAL
+  AUTO_BESTSELLERS
+
+  @@map("collection_type")
+}
+
+enum PromotionKind {
+  AUTOMATIC
+  CODE
+
+  @@map("promotion_kind")
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_DELIVERY
+
+  @@map("discount_type")
+}
+
+enum PromotionScope {
+  ALL
+  TARGETS
+
+  @@map("promotion_scope")
+}
+
+enum AdminRole {
+  OWNER
+  STAFF
+
+  @@map("admin_role")
+}
+
+// -----------------------------------------------------------------------------
+//  ADMIN
+// -----------------------------------------------------------------------------
+
+/// Profil admin : même id que l'utilisateur Supabase Auth (clé étrangère SQL vers
+/// auth.users, voir la migration *_admin). Sans profil actif, pas d'accès à l'admin.
+model AdminProfile {
+  id        String    @id @db.Uuid
+  fullName  String    @map("full_name") @db.VarChar(120)
+  role      AdminRole @default(OWNER)
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("admin_profiles")
+}
+
+// -----------------------------------------------------------------------------
+//  CATALOGUE
+// -----------------------------------------------------------------------------
+
+model Brand {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  slug        String   @unique
+  logoUrl     String?  @map("logo_url")
+  description String?
+  position    Int      @default(0)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  products Product[]
+  promotionTargets PromotionTarget[]
+
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("brands")
+}
+
+model Category {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  slug      String   @unique
+  position  Int      @default(0)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  products Product[]
+  promotionTargets PromotionTarget[]
+
+  @@map("categories")
+}
+
+/// Modèle de sneaker (ex. "Air Force 1 '07"). Ne porte ni prix ni stock.
+model Product {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brandId     String   @map("brand_id") @db.Uuid
+  categoryId  String?  @map("category_id") @db.Uuid
+  name        String
+  slug        String   @unique
+  description String?
+  /// Conseil taille affiché sur la fiche ("Taille petit, prends une pointure au-dessus")
+  sizeAdvice  String?  @map("size_advice")
+  gender      Gender
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  brand     Brand      @relation(fields: [brandId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  category  Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  colorways Colorway[]
+
+  @@index([brandId])
+  @@index([categoryId])
+  @@index([gender, isActive])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("products")
+}
+
+/// Coloris d'un modèle (ex. "Triple White"). Une page produit = un coloris.
+/// totalStock est maintenu automatiquement par trigger (somme des variantes actives).
+model Colorway {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId      String    @map("product_id") @db.Uuid
+  name           String
+  slug           String    @unique
+  styleCode      String?   @map("style_code")
+  price          Int
+  compareAtPrice Int?      @map("compare_at_price")
+  totalStock     Int       @default(0) @map("total_stock")
+  isActive       Boolean   @default(true) @map("is_active")
+  publishedAt    DateTime? @map("published_at") @db.Timestamptz(3)
+  /// « Coup de cœur de la semaine » jusqu'à cette date (un seul coloris à la fois, index partiel SQL).
+  featuredUntil  DateTime? @map("featured_until") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  product         Product          @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  images          ColorwayImage[]
+  variants        Variant[]
+  collectionItems CollectionItem[]
+  promotionTargets PromotionTarget[]
+  galleryPosts    GalleryPost[]
+
+  @@index([productId])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("colorways")
+}
+
+model ColorwayImage {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  colorwayId String   @map("colorway_id") @db.Uuid
+  url        String
+  alt        String?
+  width      Int?
+  height     Int?
+  position   Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  colorway Colorway @relation(fields: [colorwayId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([colorwayId, position])
+  @@map("colorway_images")
+}
+
+/// Pointure précise d'un coloris (entier, EU : enfant 16–35, adulte 36–46). Porte le stock.
+model Variant {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  colorwayId    String   @map("colorway_id") @db.Uuid
+  sizeEu        Int      @map("size_eu")
+  sku           String   @unique
+  stock         Int      @default(0)
+  priceOverride Int?     @map("price_override")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  colorway       Colorway        @relation(fields: [colorwayId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  orderItems     OrderItem[]
+  stockMovements StockMovement[]
+
+  @@unique([colorwayId, sizeEu])
+  @@map("variants")
+}
+
+/// Journal d'audit de chaque mouvement de stock (commande, annulation, réassort…).
+model StockMovement {
+  id        String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  variantId String              @map("variant_id") @db.Uuid
+  orderId   String?             @map("order_id") @db.Uuid
+  delta     Int
+  reason    StockMovementReason
+  note      String?
+  createdBy String?             @map("created_by")
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  variant Variant @relation(fields: [variantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([variantId, createdAt(sort: Desc)])
+  @@index([orderId])
+  @@map("stock_movements")
+}
+
+// -----------------------------------------------------------------------------
+//  COLLECTIONS (Tendances, Bestsellers, Spécial Tabaski…)
+// -----------------------------------------------------------------------------
+
+model Collection {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  slug          String         @unique
+  description   String?
+  coverImageUrl String?        @map("cover_image_url")
+  type          CollectionType @default(MANUAL)
+  showOnHome    Boolean        @default(false) @map("show_on_home")
+  homePosition  Int            @default(0) @map("home_position")
+  startsAt      DateTime?      @map("starts_at") @db.Timestamptz(3)
+  endsAt        DateTime?      @map("ends_at") @db.Timestamptz(3)
+  isActive      Boolean        @default(true) @map("is_active")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  items CollectionItem[]
+  promotionTargets PromotionTarget[]
+
+  @@map("collections")
+}
+
+model CollectionItem {
+  collectionId String   @map("collection_id") @db.Uuid
+  colorwayId   String   @map("colorway_id") @db.Uuid
+  position     Int      @default(0)
+  /// « Mot de la collection » sous une paire mise en avant (1 à 140 caractères, CHECK SQL).
+  note         String?
+  addedAt      DateTime @default(now()) @map("added_at") @db.Timestamptz(3)
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  colorway   Colorway   @relation(fields: [colorwayId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([collectionId, colorwayId])
+  @@index([collectionId, position])
+  @@index([colorwayId])
+  @@map("collection_items")
+}
+
+// -----------------------------------------------------------------------------
+//  CLIENTS & LIVRAISON
+// -----------------------------------------------------------------------------
+
+/// Client identifié par son téléphone (commande sans compte).
+model Customer {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName  String   @map("full_name")
+  phone     String   @unique
+  email     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  orders Order[]
+
+  @@map("customers")
+}
+
+/// Zones de livraison avec frais par défaut (modifiables commande par commande).
+model DeliveryZone {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @unique
+  fee       Int
+  /// Délai affiché au client : « 24 h », « 48–72 h ».
+  estimatedDelay String? @map("estimated_delay")
+  position  Int      @default(0)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  orders Order[]
+
+  @@map("delivery_zones")
+}
+
+// -----------------------------------------------------------------------------
+//  COMMANDES & PAIEMENTS
+// -----------------------------------------------------------------------------
+
+/// Les informations client et livraison sont figées dans la commande.
+/// Contrainte SQL : total = subtotal + delivery_fee - discount_amount.
+model Order {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference        String        @unique @default(dbgenerated("generate_order_reference()"))
+  customerId       String?       @map("customer_id") @db.Uuid
+  status           OrderStatus   @default(PENDING)
+  paymentMethod    PaymentMethod @map("payment_method")
+  paymentStatus    PaymentStatus @default(PENDING) @map("payment_status")
+  customerName     String        @map("customer_name")
+  customerPhone    String        @map("customer_phone")
+  /// Second numéro (proche, autre opérateur) pour joindre le client à la livraison
+  customerPhoneAlt String?       @map("customer_phone_alt")
+  deliveryZoneId   String?       @map("delivery_zone_id") @db.Uuid
+  deliveryZoneName String?       @map("delivery_zone_name")
+  deliveryAddress  String        @map("delivery_address")
+  deliveryNotes    String?       @map("delivery_notes")
+  subtotal         Int
+  deliveryFee      Int           @map("delivery_fee")
+  /// Remise du code promo (hors livraison). Contrainte SQL : total = subtotal + delivery_fee - discount_amount.
+  discountAmount   Int           @default(0) @map("discount_amount")
+  /// Code promo appliqué, figé (les deux ensemble ou aucun).
+  promotionId      String?       @map("promotion_id") @db.Uuid
+  promotionCode    String?       @map("promotion_code")
+  total            Int
+  cancelReason     String?       @map("cancel_reason")
+  /// Fin de la réservation du stock tant que la commande est PENDING (voir expire_pending_orders)
+  expiresAt        DateTime?     @map("expires_at") @db.Timestamptz(3)
+  confirmedAt      DateTime?     @map("confirmed_at") @db.Timestamptz(3)
+  shippedAt        DateTime?     @map("shipped_at") @db.Timestamptz(3)
+  deliveredAt      DateTime?     @map("delivered_at") @db.Timestamptz(3)
+  cancelledAt      DateTime?     @map("cancelled_at") @db.Timestamptz(3)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  customer       Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  deliveryZone   DeliveryZone?        @relation(fields: [deliveryZoneId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  items          OrderItem[]
+  payments       Payment[]
+  statusHistory  OrderStatusHistory[]
+  stockMovements StockMovement[]
+  promotion      Promotion?           @relation(fields: [promotionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([customerId, createdAt(sort: Desc)])
+  @@index([customerPhone])
+  @@map("orders")
+}
+
+/// Ligne de commande : tout est figé au moment de l'achat.
+/// variantId passe à NULL si la variante est supprimée, l'historique reste intact.
+model OrderItem {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId      String   @map("order_id") @db.Uuid
+  variantId    String?  @map("variant_id") @db.Uuid
+  productName  String   @map("product_name")
+  brandName    String   @map("brand_name")
+  colorwayName String   @map("colorway_name")
+  sizeEu       Int      @map("size_eu")
+  sku          String
+  imageUrl     String?  @map("image_url")
+  /// Prix catalogue au moment de l'achat.
+  unitPrice    Int      @map("unit_price")
+  /// Remise automatique par paire (promotion figée ci-dessous) ; payé = unitPrice - unitDiscount.
+  unitDiscount Int      @default(0) @map("unit_discount")
+  promotionId   String? @map("promotion_id") @db.Uuid
+  promotionName String? @map("promotion_name")
+  quantity     Int
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  variant Variant? @relation(fields: [variantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  promotion Promotion? @relation(fields: [promotionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([orderId])
+  @@index([promotionId])
+  @@index([variantId])
+  @@map("order_items")
+}
+
+/// Paiement Wave (code marchand, confirmé manuellement) ou à la livraison.
+model Payment {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId       String        @map("order_id") @db.Uuid
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  amount        Int
+  waveReference String?       @unique @map("wave_reference")
+  payerPhone    String?       @map("payer_phone")
+  note          String?
+  confirmedAt   DateTime?     @map("confirmed_at") @db.Timestamptz(3)
+  confirmedBy   String?       @map("confirmed_by")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+/// Historique des changements de statut d'une commande (timeline admin).
+model OrderStatusHistory {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId    String       @map("order_id") @db.Uuid
+  fromStatus OrderStatus? @map("from_status")
+  toStatus   OrderStatus  @map("to_status")
+  note       String?
+  changedBy  String?      @map("changed_by")
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("order_status_history")
+}
+
+// -----------------------------------------------------------------------------
+//  PROMOTIONS ET CODES PROMO
+//  Contraintes (CHECK), index partiels et fonctions : migration *_promotions.
+//  Règles d'application : src/features/promotions/rules.ts.
+// -----------------------------------------------------------------------------
+
+/// AUTOMATIC : remise d'office (prix barré) ; CODE : saisi au panier.
+model Promotion {
+  id                    String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String
+  description           String?
+  kind                  PromotionKind
+  /// Majuscules, chiffres, - et _ (3 à 30) ; obligatoire pour CODE, absent pour AUTOMATIC.
+  code                  String?        @unique
+  discountType          DiscountType   @map("discount_type")
+  /// Pourcentage (1–100) ou montant FCFA ; null pour la livraison offerte.
+  value                 Int?
+  /// Plafond de remise en FCFA (pourcentage uniquement).
+  maxDiscount           Int?           @map("max_discount")
+  scope                 PromotionScope @default(ALL)
+  minSubtotal           Int?           @map("min_subtotal")
+  minPairs              Int?           @map("min_pairs")
+  firstOrderOnly        Boolean        @default(false) @map("first_order_only")
+  usageLimit            Int?           @map("usage_limit")
+  usageLimitPerCustomer Int?           @map("usage_limit_per_customer")
+  /// Code cumulable avec les promotions automatiques et les prix barrés.
+  stackable             Boolean        @default(false)
+  startsAt              DateTime       @default(now()) @map("starts_at") @db.Timestamptz(3)
+  endsAt                DateTime?      @map("ends_at") @db.Timestamptz(3)
+  isActive              Boolean        @default(true) @map("is_active")
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  targets    PromotionTarget[]
+  orders     Order[]
+  orderItems OrderItem[]
+
+  @@index([kind, isActive])
+  @@map("promotions")
+}
+
+/// Cible d'une promotion (scope = TARGETS) : exactement une marque, catégorie, collection ou un coloris.
+model PromotionTarget {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  promotionId  String  @map("promotion_id") @db.Uuid
+  brandId      String? @map("brand_id") @db.Uuid
+  categoryId   String? @map("category_id") @db.Uuid
+  collectionId String? @map("collection_id") @db.Uuid
+  colorwayId   String? @map("colorway_id") @db.Uuid
+
+  promotion  Promotion   @relation(fields: [promotionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  brand      Brand?      @relation(fields: [brandId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  category   Category?   @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  collection Collection? @relation(fields: [collectionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  colorway   Colorway?   @relation(fields: [colorwayId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([promotionId])
+  @@map("promotion_targets")
+}
+
+// -----------------------------------------------------------------------------
+//  PARAMÈTRES DE LA BOUTIQUE (une seule ligne, id = 1) — migration *_store_settings
+// -----------------------------------------------------------------------------
+
+model StoreSettings {
+  id               Int      @id @default(1)
+  storeName        String   @default("Mariemeshoes") @map("store_name")
+  /// E.164 (+221771234567)
+  whatsappNumber   String?  @map("whatsapp_number")
+  contactPhone     String?  @map("contact_phone")
+  contactEmail     String?  @map("contact_email")
+  instagramUrl     String?  @map("instagram_url")
+  tiktokUrl        String?  @map("tiktok_url")
+  /// Code marchand Wave Business, affiché au client pour payer
+  waveMerchantCode String?  @map("wave_merchant_code")
+  /// Lien de paiement Wave (https://pay.wave.com/…)
+  wavePaymentLink  String?  @map("wave_payment_link")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("store_settings")
+}
+
+/// Galerie : une photo d'ambiance = une paire (coloris) existante.
+model GalleryPost {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  colorwayId  String    @map("colorway_id") @db.Uuid
+  /// gallery/<année>/<uuid>.webp (ou .jpg), bucket « products » (CHECK SQL).
+  imagePath   String    @map("image_path")
+  width       Int?
+  height      Int?
+  /// 1 à 160 caractères (CHECK SQL).
+  caption     String?
+  isPublished Boolean   @default(false) @map("is_published")
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  colorway Colorway @relation(fields: [colorwayId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([colorwayId], map: "gallery_posts_colorway_idx")
+  @@map("gallery_posts")
+}

@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+/*
+ * Charte Mariemeshoes (voir mariemeshoes-recap.md §6).
+ * Chaque couleur donne ses utilitaires Tailwind : bg-page, text-ink, border-border…
+ */
+@theme {
+  --color-page: #FAF7F2;        /* Ivoire : fond de page */
+  --color-surface: #FFFDF9;     /* Capsules (header, menus, sélecteur de pointure) */
+  --color-card: #F3EDE6;        /* Sable clair : fond des cartes produit (rester très clair : mix-blend-multiply) */
+  --color-border: #E4DDD5;      /* Lin : bordures */
+  --color-section: #F4DEE6;     /* Rose thé : sections collections, dock mobile */
+  --color-section-ink: #6B3A52; /* Texte secondaire sur rose thé */
+  --color-muted: #8E857D;       /* Taupe : décoratif uniquement (contraste insuffisant pour du texte) */
+  --color-muted-ink: #5E554E;   /* Texte secondaire lisible sur ivoire */
+  --color-accent: #E6007E;      /* Magenta : boutons, pointure sélectionnée, logo */
+  --color-accent-ink: #B8005F;  /* Magenta foncé : petits textes magenta sur fond clair */
+  --color-accent-soft: #F48BC4; /* Rose vif : petits textes d'accent sur aubergine */
+  --color-ink: #161315;         /* Noir doux : texte principal */
+  --color-deep: #2A0E1E;        /* Aubergine : footer, bannière */
+  --color-deep-ink: #D8C7D0;    /* Texte secondaire sur aubergine */
+  --color-deep-line: #43192F;   /* Filigrane sur aubergine */
+  --color-cream: #FBF4EE;       /* Crème : texte sur aubergine */
+}
+
+/* Polices chargées par next/font (src/config/fonts.ts) */
+@theme inline {
+  --font-display: var(--font-marcellus), serif;
+  --font-sans: var(--font-schibsted), system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
