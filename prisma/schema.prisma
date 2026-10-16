@@ -122,6 +122,8 @@ model AdminProfile {
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  pushSubscriptions PushSubscription[]
+
   @@map("admin_profiles")
 }
 
@@ -572,4 +574,21 @@ model GalleryPost {
 
   @@index([colorwayId], map: "gallery_posts_colorway_idx")
   @@map("gallery_posts")
+}
+
+/// Notifications push : un navigateur (téléphone, ordinateur) d'un admin abonné aux alertes.
+model PushSubscription {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId    String    @map("admin_id") @db.Uuid
+  endpoint   String    @unique(map: "push_subscriptions_endpoint_key")
+  p256dh     String
+  auth       String
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSentAt DateTime? @map("last_sent_at") @db.Timestamptz(3)
+
+  admin AdminProfile @relation(fields: [adminId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([adminId], map: "push_subscriptions_admin_idx")
+  @@map("push_subscriptions")
 }

@@ -5,6 +5,7 @@ import { logoutAction, logoutEverywhereAction } from '@/features/auth/actions';
 import { ROLE_LABEL } from '@/features/auth/roles';
 import ChangePasswordForm from '@/features/auth/components/ChangePasswordForm';
 import DisplayNameForm from '@/features/auth/components/DisplayNameForm';
+import NotificationSettings from '@/features/notifications/components/NotificationSettings';
 
 export const metadata: Metadata = {
   title: 'Mon compte · Administration',
@@ -18,7 +19,7 @@ export default async function AccountPage() {
     <div className="flex flex-col gap-6 pb-16">
       <header className="flex flex-col gap-2">
         <h1 className="font-display text-[2rem] leading-none lg:text-[2.625rem]">Mon compte</h1>
-        <p className="text-sm text-muted-ink">Ton identité, ton mot de passe et tes appareils connectés.</p>
+        <p className="text-sm text-muted-ink">Ton identité, ton mot de passe, tes appareils et tes notifications.</p>
       </header>
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:gap-5">
@@ -68,6 +69,8 @@ export default async function AccountPage() {
               </form>
             </div>
           </section>
+
+          <NotificationSettings />
         </div>
 
         {/* Mot de passe */}

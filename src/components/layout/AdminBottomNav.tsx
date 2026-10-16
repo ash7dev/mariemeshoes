@@ -143,7 +143,7 @@ export default function AdminBottomNav({ badges, admin }: AdminBottomNavProps) {
               </span>
               <span className="flex flex-1 flex-col gap-0.5">
                 <span className="text-[0.9375rem]">Mon compte</span>
-                <span className="text-xs text-muted-ink">Mot de passe, appareils</span>
+                <span className="text-xs text-muted-ink">Mot de passe, appareils, notifications</span>
               </span>
               <ChevronRight className="size-4 text-accent-ink" strokeWidth={1.8} aria-hidden="true" />
             </Link>

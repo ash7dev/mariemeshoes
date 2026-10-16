@@ -1,6 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
+import { notifyOrdersCancelled } from '@/features/notifications/events';
 import { requireAdmin } from '@/features/auth/require-admin';
 import { toDomainError } from '@/lib/db-errors';
 import { DomainError } from '@/lib/errors';
@@ -49,7 +51,11 @@ export async function deliverOrderAction(orderId: string, collected: boolean) {
 }
 
 export async function cancelOrderAction(orderId: string, reason: string) {
-  return run('Commande annulée : les paires sont remises en stock.', (adminId) => cancelOrder(adminId, orderId, reason.slice(0, 300)));
+  return run('Commande annulée : les paires sont remises en stock.', async (adminId) => {
+    await cancelOrder(adminId, orderId, reason.slice(0, 300));
+    // Les autres admins sont prévenus (pas celui qui vient d'annuler).
+    after(() => notifyOrdersCancelled([orderId], { byAdminId: adminId }).catch((error) => console.error('Notification d’annulation impossible', error)));
+  });
 }
 
 export async function returnOrderAction(orderId: string, note: string) {

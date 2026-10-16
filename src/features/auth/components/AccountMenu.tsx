@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ChevronDown, Images, KeyRound, LogOut, MonitorSmartphone, Settings2 } from 'lucide-react';
+import { BellRing, ChevronDown, Images, KeyRound, LogOut, MonitorSmartphone, Settings2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { logoutAction, logoutEverywhereAction } from '../actions';
 
@@ -83,6 +83,10 @@ export default function AccountMenu({ fullName, email, roleLabel }: AccountMenuP
             <Link href="/admin/parametres" onClick={() => setOpen(false)} className={item}>
               <Settings2 className="size-[18px] text-accent-ink" strokeWidth={1.7} aria-hidden="true" />
               Paramètres de la boutique
+            </Link>
+            <Link href="/admin/compte#notifications" onClick={() => setOpen(false)} className={item}>
+              <BellRing className="size-[18px] text-accent-ink" strokeWidth={1.7} aria-hidden="true" />
+              Notifications
             </Link>
             <Link href="/admin/compte" onClick={() => setOpen(false)} className={item}>
               <KeyRound className="size-[18px] text-accent-ink" strokeWidth={1.7} aria-hidden="true" />

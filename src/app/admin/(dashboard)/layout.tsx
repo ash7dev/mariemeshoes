@@ -1,4 +1,6 @@
+import { after } from 'next/server';
 import { requireAdmin } from '@/features/auth/require-admin';
+import { expireStaleOrders } from '@/features/orders/expiry';
 import { ROLE_LABEL } from '@/features/auth/roles';
 import { getAdminCounts } from '@/features/admin/queries';
 import type { AdminBadges } from '@/features/admin/navigation';
@@ -24,6 +26,8 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
     },
   };
   const identity = { fullName: admin.fullName, email: admin.email, roleLabel: ROLE_LABEL[admin.role] };
+  // Réservations expirées : annulées (et paires remises en stock) au fil des visites de l'admin.
+  after(() => expireStaleOrders());
 
   return (
     <div className="min-h-dvh bg-page">
